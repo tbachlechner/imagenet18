@@ -71,3 +71,11 @@ Runs will show up under under "imagenet18" project in your Weights and Biases pa
 # Other notes
 If you run locally, you may need to download imagenet yourself from [here](https://s3.amazonaws.com/yaroslavvb2/data/imagenet18.tar)
 
+# ReZero
+
+To call model using (post-ReLu) ReZero use
+
+```
+import resnet
+model = resnet.resnet50(rezero=True)
+```
