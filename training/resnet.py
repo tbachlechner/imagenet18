@@ -21,10 +21,11 @@ def conv3x3(in_planes, out_planes, stride=1):
                      padding=1, bias=False)
 
 
+
 class BasicBlock(nn.Module):
     expansion = 1
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None, rezero = True):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, rezero = False):
         super(BasicBlock, self).__init__()
         self.conv1 = conv3x3(inplanes, planes, stride)
         self.bn1 = nn.BatchNorm2d(planes)
@@ -34,7 +35,8 @@ class BasicBlock(nn.Module):
         self.downsample = downsample
         self.stride = stride
         self.rezero = rezero
-        self.resweight = nn.Parameter(torch.Tensor([0]), requires_grad=True)
+        if self.rezero:
+            self.resweight = nn.Parameter(torch.zeros(1), requires_grad=True)
         
     def forward(self, x):
         residual = x
@@ -49,8 +51,7 @@ class BasicBlock(nn.Module):
             residual = self.downsample(x)
         
         if self.rezero == True:
-            out = self.relu(out)
-            out = out * self.resweight + residual
+            out = self.relu(out) * self.resweight + residual
         elif self.rezero == False:
             out += residual
             out = self.relu(out)
@@ -58,10 +59,11 @@ class BasicBlock(nn.Module):
         return out
 
 
+
 class Bottleneck(nn.Module):
     expansion = 4
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, rezero = False):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
@@ -73,7 +75,10 @@ class Bottleneck(nn.Module):
         self.relu = nn.ReLU(inplace=True)
         self.downsample = downsample
         self.stride = stride
-
+        self.rezero = rezero
+        if self.rezero:
+            self.resweight = nn.Parameter(torch.zeros(1), requires_grad=True)
+        
     def forward(self, x):
         residual = x
 
@@ -91,15 +96,18 @@ class Bottleneck(nn.Module):
         if self.downsample is not None:
             residual = self.downsample(x)
 
-        out += residual
-        out = self.relu(out)
+        if self.rezero == True:
+            out = self.relu(out) * (self.resweight) + residual
+        elif self.rezero == False:
+            out += residual
+            out = self.relu(out)
 
         return out
 
 
 class ResNet(nn.Module):
 
-    def __init__(self, block, layers, num_classes=1000, rezero = True):
+    def __init__(self, block, layers, num_classes=1000, rezero = False):
         self.inplanes = 64
         super(ResNet, self).__init__()
         self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
@@ -107,10 +115,10 @@ class ResNet(nn.Module):
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.layer1 = self._make_layer(block, 64, layers[0], rezero=rezero)
-        self.layer2 = self._make_layer(block, 128, layers[1], stride=2, rezero=rezero)
-        self.layer3 = self._make_layer(block, 256, layers[2], stride=2, rezero=rezero)
-        self.layer4 = self._make_layer(block, 512, layers[3], stride=2, rezero=rezero)
+        self.layer1 = self._make_layer(block, 64, layers[0], rezero = rezero)
+        self.layer2 = self._make_layer(block, 128, layers[1], stride=2, rezero = rezero)
+        self.layer3 = self._make_layer(block, 256, layers[2], stride=2, rezero = rezero)
+        self.layer4 = self._make_layer(block, 512, layers[3], stride=2, rezero = rezero)
         self.avgpool = nn.AdaptiveAvgPool2d(1)
         self.fc = nn.Linear(512 * block.expansion, num_classes)
 
@@ -121,7 +129,7 @@ class ResNet(nn.Module):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
 
-    def _make_layer(self, block, planes, blocks, stride=1, rezero = True):
+    def _make_layer(self, block, planes, blocks, stride=1, rezero = False):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
             downsample = nn.Sequential(
@@ -131,11 +139,11 @@ class ResNet(nn.Module):
             )
 
         layers = []
-        layers.append(block(self.inplanes, planes, stride, downsample, rezero))
+        layers.append(block(self.inplanes, planes, stride, downsample, rezero = rezero))
         self.inplanes = planes * block.expansion
         for i in range(1, blocks):
-            layers.append(block(self.inplanes, planes, rezero=rezero))
-
+            layers.append(block(self.inplanes, planes, rezero = rezero))
+        
         return nn.Sequential(*layers)
 
     def forward(self, x):
@@ -165,61 +173,57 @@ def init_dist_weights(model):
         if isinstance(m, nn.Linear): m.weight.data.normal_(0, 0.01)
 
 
-def resnet18(pretrained=False, **kwargs):
+def resnet18(pretrained=False, rezero = False, **kwargs):
     """Constructs a ResNet-18 model.
-
     Args:
         pretrained (bool): If True, returns a model pre-trained on ImageNet
     """
-    model = ResNet(BasicBlock, [2, 2, 2, 2], **kwargs)
+    model = ResNet(BasicBlock, [2, 2, 2, 2], **kwargs, rezero = rezero)
     if pretrained:
         model.load_state_dict(model_zoo.load_url(model_urls['resnet18']))
     return model
 
 
-def resnet34(pretrained=False, **kwargs):
+def resnet34(pretrained=False, rezero = False, **kwargs):
     """Constructs a ResNet-34 model.
-
     Args:
         pretrained (bool): If True, returns a model pre-trained on ImageNet
     """
-    model = ResNet(BasicBlock, [3, 4, 6, 3], **kwargs)
+    model = ResNet(BasicBlock, [3, 4, 6, 3], **kwargs, rezero = rezero)
     if pretrained:
         model.load_state_dict(model_zoo.load_url(model_urls['resnet34']))
     return model
 
 
-def resnet50(pretrained=False, bn0=False, **kwargs):
+def resnet50(pretrained=False, bn0=False, rezero = False, **kwargs):
     """Constructs a ResNet-50 model.
-
     Args:
         pretrained (bool): If True, returns a model pre-trained on ImageNet
     """
-    model = ResNet(Bottleneck, [3, 4, 6, 3], **kwargs)
+    model = ResNet(Bottleneck, [3, 4, 6, 3], **kwargs, rezero = rezero)
+    
     if pretrained: model.load_state_dict(model_zoo.load_url(model_urls['resnet50']))
     if bn0: init_dist_weights(model)
     return model
 
 
-def resnet101(pretrained=False, **kwargs):
+def resnet101(pretrained=False, rezero = False, **kwargs):
     """Constructs a ResNet-101 model.
-
     Args:
         pretrained (bool): If True, returns a model pre-trained on ImageNet
     """
-    model = ResNet(Bottleneck, [3, 4, 23, 3], **kwargs)
+    model = ResNet(Bottleneck, [3, 4, 23, 3], **kwargs, rezero = rezero)
     if pretrained:
         model.load_state_dict(model_zoo.load_url(model_urls['resnet101']))
     return model
 
 
-def resnet152(pretrained=False, **kwargs):
+def resnet152(pretrained=False, rezero = False, **kwargs):
     """Constructs a ResNet-152 model.
-
     Args:
         pretrained (bool): If True, returns a model pre-trained on ImageNet
     """
-    model = ResNet(Bottleneck, [3, 8, 36, 3], **kwargs)
+    model = ResNet(Bottleneck, [3, 8, 36, 3], **kwargs, rezero = rezero)
     if pretrained:
         model.load_state_dict(model_zoo.load_url(model_urls['resnet152']))
     return model
