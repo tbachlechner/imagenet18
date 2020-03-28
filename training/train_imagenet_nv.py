@@ -155,7 +155,7 @@ def main():
         log.console("Distributed: success (%d/%d)" % (args.local_rank, dist.get_world_size()))
 
     log.console("Loading model")
-    model = resnet.resnet50(bn0=args.init_bn0).cuda()
+    model = resnet.resnet50(bn0=args.init_bn0,rezero=True).cuda()
     if args.fp16:
         model = network_to_half(model)
     if args.distributed:
